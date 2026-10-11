@@ -123,14 +123,16 @@ function valid(z){$('vt').textContent='Validate Detections — '+Z[z].n;const dl
 $('vx').onclick=()=>$('vd').close();
 /* ---------- model + sources ---------- */
 const ld=u=>new Promise((r,j)=>{const s=document.createElement('script');s.src=u;s.onload=r;s.onerror=()=>j(new Error('Internet/CDN problem: model load hoy ni'));document.head.appendChild(s)});
-async function model(){const n=$('mdl').value;if(M&&MN==n)return;msg('AI model load hocche… (prothombar ektu somoy lagbe)');
- if(!window.tf)await ld('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0');if(!window.cocoSsd)await ld('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3');M=await cocoSsd.load({base:n});MN=n}
+async function model(){const n=$('mdl').value;if(M&&MN==n)return; if(!window.tf)await ld('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0');if(!window.cocoSsd)await ld('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3');M=await cocoSsd.load({base:n});MN=n}
 function reset(){S.tracks=[];S.objs=[];S.hist=[];S.el=0;S.lh=-9;S.nid=1;S.live={in:0,out:0};S.date=new Date();dobs=[]}
 function setSrc(el,w,h,kind){c.width=Math.min(w,1280);c.height=Math.round(c.width*h/w);S.k=c.width/w;S.src=el;S.kind=kind;reset();S.run=true;ui()}
 function stopSrc(keep){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}v.pause();v.removeAttribute('src');v.srcObject=null;if(!keep)S.src=null}
-$('bCam').onclick=async()=>{try{await model();stopSrc();stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:$('cam').value,width:{ideal:1280},height:{ideal:720}},audio:false});
- v.srcObject=stream;await v.play();setSrc(v,v.videoWidth,v.videoHeight,'cam');msg('Live ✔')}catch(e){msg('Error: '+e.message+' (HTTPS + camera permission lagbe)')}};
-$('fi').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{await model();stopSrc();v.src=URL.createObjectURL(f);v.onended=()=>{S.run=false;ui();msg('Video sesh ✔')};await v.play();setSrc(v,v.videoWidth,v.videoHeight,'file');msg('Video analyse hocche…')}catch(er){msg('Error: '+er.message)}};
+const mload=()=>{const T=new Promise((_,j)=>setTimeout(()=>j(new Error('Model load hocche na — internet check kore page reload koro')),90000));
+ return Promise.race([model(),T]).then(()=>{msg('Live ✔ — AI chalu');return 1}).catch(e=>{msg('Error: '+e.message);return 0})};
+$('bCam').onclick=async()=>{try{stopSrc();stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:$('cam').value,width:{ideal:1280},height:{ideal:720}},audio:false});
+ v.srcObject=stream;await v.play();setSrc(v,v.videoWidth,v.videoHeight,'cam');msg('Camera chalu ✔ — AI model load hocche (1-2 min lagte pare)…');mload()}catch(e){msg('Camera error: '+e.name+' — '+e.message)}};
+$('fi').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{stopSrc();v.src=URL.createObjectURL(f);v.onended=()=>{S.run=false;ui();msg('Video sesh ✔')};await v.play();setSrc(v,v.videoWidth,v.videoHeight,'file');S.run=false;v.pause();msg('AI model load hocche…');
+ if(await mload()){S.run=true;v.play()}}catch(er){msg('Error: '+er.message)}};
 $('bDemo').onclick=()=>{stopSrc();setSrc(dc,640,360,'demo');msg('Demo mode (simulated traffic) — AI model lage na.')};
 $('pill').onclick=()=>{if(!S.src&&!S.kind){msg('Age Camera / Video / Demo select koro.');return}S.run=!S.run;if(S.kind=='file')S.run?v.play():v.pause();ui()};
 $('ed').onclick=()=>{S.edit=!S.edit;c.style.touchAction=S.edit?'none':'auto';$('ed').classList.toggle('on',S.edit);msg(S.edit?'Zone-er upor drag kore sorao, kone-r square-e resize koro.':'')};
@@ -150,7 +152,7 @@ $('csv').onclick=()=>dl(new Blob(['id,class,zone,seconds\n'+S.objs.filter(o=>o.o
 function loop(now){const dt=Math.min(.2,(now-S.last)/1000||0);S.last=now;
  if(S.run){S.el+=dt;if(S.kind=='demo')dstep(dt);
   if(S.el-S.lh>=1){S.lh=S.el;S.hist.push({t:Date.now(),el:S.el})}
-  if(!S.busy&&S.src){S.busy=1;(S.kind=='demo'?Promise.resolve(ddet()):M.detect(S.src,40,.35)).then(r=>{if(S.run)upd(r.filter(d=>COL[d.class]).map(d=>({c:d.class,s:d.score,b:d.bbox.map(n=>n*S.k)})));S.busy=0}).catch(e=>{S.busy=0;msg(e.message)})}}
+  if(!S.busy&&S.src&&(S.kind=='demo'||M)){S.busy=1;(S.kind=='demo'?Promise.resolve(ddet()):M.detect(S.src,40,.35)).then(r=>{if(S.run)upd(r.filter(d=>COL[d.class]).map(d=>({c:d.class,s:d.score,b:d.bbox.map(n=>n*S.k)})));S.busy=0}).catch(e=>{S.busy=0;msg(e.message)})}}
  draw();requestAnimationFrame(loop)}
 dstep(0);requestAnimationFrame(loop);setInterval(ui,500);ui();
 </script></body></html>
