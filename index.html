@@ -1,0 +1,156 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0d"><title>AI CCTV</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0b0d;--tx:#e9e9ec;--mu:#9a9aa3;--or:#f59e0b;--cd:rgba(120,70,10,.3);--bd:rgba(245,158,11,.45)}
+*{box-sizing:border-box}html{background:var(--bg)}
+body{margin:0 auto;max-width:760px;color:var(--tx);font:14px/1.4 system-ui,-apple-system,sans-serif;padding:env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 30px)}
+canvas#c{width:100%;display:block;background:#000;touch-action:auto}
+.p{padding:0 14px}.mu{color:var(--mu)}h3{margin:16px 0 8px;font-size:16px}
+.loc{background:none;border:0;color:var(--tx);font:600 16px system-ui;width:100%;padding:10px 14px;text-align:center}
+.pill{background:var(--or);color:#000;border:0;border-radius:10px;padding:11px 20px;font:700 15px system-ui}
+.btn{background:#1f1f24;color:var(--tx);border:1px solid #333;border-radius:9px;padding:9px 12px;font:600 13px system-ui}
+.btn.on{background:#ef4444;border-color:#ef4444}.lk{background:none;border:0;color:var(--or);font:600 13px system-ui;padding:6px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.ctr{justify-content:center}
+.card{background:var(--cd);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:10px 0}
+.line{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px;border:1px solid #2a2a30;border-radius:10px;margin:6px 0}
+.line b.n{min-width:70px}.ic{display:inline-flex;gap:4px;align-items:center;font-weight:700}
+.big{font-size:22px;font-weight:800;float:right}.sq{display:inline-block;width:13px;height:13px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+.ls{display:flex;justify-content:space-between;padding:6px 0;font-weight:600}.ls span:first-child{font-weight:500}
+canvas.g{width:100%;background:#12100a;border-radius:8px;margin-top:8px}
+dialog{background:#15151a;color:var(--tx);border:1px solid #333;border-radius:14px;width:min(94vw,640px);max-height:85vh}
+dialog::backdrop{background:#000a}.gr{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin-top:10px}
+.it{background:#1f1f24;border-radius:9px;padding:6px;text-align:center;font-size:12px}.it img{width:100%;border-radius:6px;display:block}
+.it.x{opacity:.35}.it select{width:100%;margin:4px 0;background:#111;color:#fff;border:1px solid #333;border-radius:6px}
+#msg{padding:8px 14px;color:var(--or);min-height:20px}select.btn{padding:9px 6px}
+</style></head><body>
+<canvas id="c" width="640" height="360"></canvas><video id="v" playsinline muted style="display:none"></video>
+<input class="loc" id="loc" value="Unknown location" aria-label="Location">
+<div class="p">
+ <div class="row ctr" id="src">
+  <button class="btn" id="bCam">📷 Camera</button><label class="btn">📁 Video file<input id="fi" type="file" accept="video/*" hidden></label>
+  <button class="btn" id="bDemo">▶ Demo</button>
+  <select class="btn" id="cam"><option value="environment">Back cam</option><option value="user">Front cam</option></select>
+  <select class="btn" id="mdl"><option value="lite_mobilenet_v2">Fast model</option><option value="mobilenet_v2">Accurate model</option></select>
+ </div>
+ <div class="row ctr"><button class="pill" id="pill">▶ Start</button>
+  <button class="btn" id="rec">⏺ REC</button><button class="btn" id="ed">✥ Zones</button><button class="btn" id="csv">⬇ CSV</button></div>
+ <div id="msg">Camera / Video file / Demo select koro.</div>
+ <h3>Boxes</h3><div id="boxes"></div>
+ <div class="card"><b>Total Uniquely Identified Objects</b><span class="big" id="tt">0</span><div style="clear:both"></div><div id="tl"></div>
+  <button class="lk" data-g="">📈 Show Graph</button><canvas class="g" width="640" height="260" hidden></canvas></div>
+ <div class="mu" style="text-align:center" id="dt"></div>
+ <div id="zs"></div>
+</div>
+<dialog id="vd"><div class="row"><b style="flex:1" id="vt">Validate Detections</b><button class="btn" id="vx">Close</button></div><div class="gr" id="vg"></div></dialog>
+<script>
+const $=id=>document.getElementById(id),c=$('c'),X=c.getContext('2d'),v=$('v');
+const K=['bus','car','motorcycle','person','truck','bicycle'],IC={bus:'🚌',car:'🚗',motorcycle:'🏍️',person:'🧍',truck:'🚚',bicycle:'🚲'};
+const COL={bus:'#facc15',car:'#f87171',motorcycle:'#fb923c',person:'#a78bfa',truck:'#60a5fa',bicycle:'#f472b6'};
+const Z={in:{x:.16,y:.22,w:.32,h:.62,c:'#f59e0b',n:'Inbound'},out:{x:.52,y:.22,w:.32,h:.62,c:'#3b82f6',n:'Outbound'}};
+let S={run:false,el:0,lh:-9,tracks:[],nid:1,objs:[],hist:[],live:{in:0,out:0},k:1,src:null,kind:'',edit:false,busy:0,last:0,date:new Date()},M=null,MN='',stream=null,rec=null,dr=null;
+try{const j=JSON.parse(localStorage.getItem('cctvZ')||'null');if(j){for(const z in j)Object.assign(Z[z],j[z]);}$('loc').value=localStorage.getItem('cctvL')||$('loc').value}catch(e){}
+const save=()=>{try{localStorage.setItem('cctvZ',JSON.stringify(Z));localStorage.setItem('cctvL',$('loc').value)}catch(e){}};
+$('loc').onchange=save;const msg=t=>$('msg').textContent=t;
+const cl=(a,b,d)=>Math.max(b,Math.min(d,a)),pad=n=>String(n).padStart(2,'0');
+const fmt=s=>`${pad(s/3600|0)}:${pad(s/60%60|0)}:${pad(s%60|0)}s`;
+/* ---------- demo scene (no camera / no internet needed) ---------- */
+const dc=document.createElement('canvas');dc.width=640;dc.height=360;const D=dc.getContext('2d');let dobs=[],dsp=0;
+function dstep(dt){dsp-=dt;if(dsp<=0){dsp=.35+Math.random()*.5;const o=Math.random()<.5,r=Math.random(),cls=r<.45?'car':r<.7?'motorcycle':r<.8?'person':r<.9?'truck':'bus';
+ const s={car:[34,20],motorcycle:[14,22],person:[10,18],truck:[42,24],bus:[50,26]}[cls];
+ dobs.push({cls,w:s[0],h:s[1],x:(o?.68:.32)*640+(Math.random()-.5)*70-s[0]/2,y:o?380:-30,vy:(o?-1:1)*(cls=='person'?35:70+Math.random()*50),col:COL[cls]})}
+ dobs.forEach(o=>o.y+=o.vy*dt);dobs=dobs.filter(o=>o.y>-60&&o.y<400);
+ D.fillStyle='#4a4d52';D.fillRect(0,0,640,360);D.fillStyle='#3a3c40';D.fillRect(150,0,340,360);
+ D.strokeStyle='#e5e5e5';D.setLineDash([16,14]);D.lineWidth=3;D.beginPath();D.moveTo(320,0);D.lineTo(320,360);D.stroke();D.setLineDash([]);
+ D.fillStyle='#d8d8d8';for(let i=0;i<10;i++)D.fillRect(160+i*32,300,18,38);
+ dobs.forEach(o=>{D.fillStyle=o.col;D.fillRect(o.x,o.y,o.w,o.h);D.fillStyle='#0008';D.fillRect(o.x+3,o.y+4,o.w-6,o.h/3)})}
+const ddet=()=>dobs.map(o=>({class:o.cls,score:.8+Math.random()*.15,bbox:[o.x+Math.random()*2,o.y+Math.random()*2,o.w,o.h]}));
+/* ---------- tracking + zone counting ---------- */
+const iou=(a,b)=>{const x=Math.max(a[0],b[0]),y=Math.max(a[1],b[1]),X2=Math.min(a[0]+a[2],b[0]+b[2]),Y2=Math.min(a[1]+a[3],b[1]+b[3]),i=Math.max(0,X2-x)*Math.max(0,Y2-y);return i/(a[2]*a[3]+b[2]*b[3]-i+1e-6)};
+const best=v=>Object.keys(v).sort((a,b)=>v[b]-v[a])[0];
+function upd(ds){const T=S.tracks,P=[],ui=new Set,uj=new Set;
+ T.forEach(t=>{t.m=0;const f=t.miss+1;t.p=[t.b[0]+t.vx*f,t.b[1]+t.vy*f,t.b[2],t.b[3]]});
+ ds.forEach((d,i)=>T.forEach((t,j)=>{const s=iou(t.p,d.b);if(s>.12)P.push([s,i,j])}));P.sort((a,b)=>b[0]-a[0]);
+ P.forEach(([s,i,j])=>{if(ui.has(i)||uj.has(j))return;ui.add(i);uj.add(j);const t=T[j],d=ds[i];
+  t.vx=.6*t.vx+.4*(d.b[0]-t.b[0])/(t.miss+1);t.vy=.6*t.vy+.4*(d.b[1]-t.b[1])/(t.miss+1);t.b=d.b;t.m=1;t.miss=0;t.age++;t.v[d.c]=(t.v[d.c]||0)+d.s});
+ ds.forEach((d,i)=>{if(!ui.has(i))T.push({id:S.nid++,b:d.b,vx:0,vy:0,age:1,miss:0,m:1,v:{[d.c]:d.s},zone:null})});
+ T.forEach(t=>{if(!t.m)t.miss++;t.cls=best(t.v)});S.tracks=T.filter(t=>t.miss<14);
+ const L={in:0,out:0};
+ S.tracks.forEach(t=>{if(t.miss)return;const cx=(t.b[0]+t.b[2]/2)/c.width,cy=(t.b[1]+t.b[3]/2)/c.height;
+  for(const z in Z){const q=Z[z];if(cx>q.x&&cx<q.x+q.w&&cy>q.y&&cy<q.y+q.h){L[z]++;if(!t.zone&&t.age>=3){t.zone=z;add(t,z)}}}});
+ S.live=L}
+function add(t,z){const o=document.createElement('canvas');o.width=o.height=72;const[x,y,w,h]=t.b,s=Math.max(w,h)*1.25,k=S.k;
+ try{o.getContext('2d').drawImage(S.src,(x+w/2-s/2)/k,(y+h/2-s/2)/k,s/k,s/k,0,0,72,72)}catch(e){}
+ S.objs.push({id:t.id,cls:t.cls,zone:z,ok:1,at:S.el,img:o.toDataURL('image/jpeg',.6)})}
+const cnt=(z,cut)=>{const r={};K.forEach(k=>r[k]=0);S.objs.forEach(o=>{if(o.ok&&(!z||o.zone==z)&&(cut==null||o.at<=cut))r[o.cls]++});return r};
+/* ---------- drawing ---------- */
+function draw(){X.drawImage(S.src||dc,0,0,c.width,c.height);const W=c.width,H=c.height,f=W/640;
+ for(const z in Z){const q=Z[z],x=q.x*W,y=q.y*H,w=q.w*W,h=q.h*H;X.fillStyle=q.c+'30';X.fillRect(x,y,w,h);X.strokeStyle=q.c;X.lineWidth=2*f;X.strokeRect(x,y,w,h);
+  X.font=`700 ${15*f}px system-ui`;X.textAlign='center';X.fillStyle='#000a';X.fillRect(x+w/2-18*f,y-1,36*f,22*f);X.fillStyle='#fff';X.fillText(S.live[z],x+w/2,y+16*f);
+  if(S.edit){X.fillStyle=q.c;X.fillRect(x+w-12*f,y+h-12*f,16*f,16*f);X.textAlign='left';X.fillText(q.n,x+6*f,y+h-6*f)}}
+ X.textAlign='left';X.font=`600 ${12*f}px system-ui`;
+ S.tracks.forEach(t=>{if(t.miss||t.age<2)return;const[x,y,w,h]=t.b,col=COL[t.cls]||'#fff',tx=t.cls[0].toUpperCase()+t.cls.slice(1);
+  X.strokeStyle=col;X.lineWidth=1.5*f;X.strokeRect(x,y,w,h);const tw=X.measureText(tx).width+8*f;X.fillStyle=col+'cc';X.fillRect(x,y-15*f,tw,15*f);X.fillStyle='#000';X.fillText(tx,x+4*f,y-4*f)});
+ X.fillStyle='#0009';X.fillRect(0,0,W,22*f);X.fillStyle='#fff';X.fillText(new Date().toLocaleString(),6*f,15*f);
+ if(rec&&rec.state=='recording'){X.fillStyle='#ef4444';X.beginPath();X.arc(W-14*f,11*f,6*f,0,7);X.fill()}}
+function graph(cv,z){const g=cv.getContext('2d'),W=cv.width,H=cv.height,h=S.hist;g.clearRect(0,0,W,H);
+ const p={l:36,r:10,t:10,b:24},S2=h.map(e=>({t:e.t,c:cnt(z,e.el)}));
+ g.strokeStyle='#ffffff18';g.fillStyle='#aaa';g.font='11px system-ui';g.textAlign='right';
+ const fin=cnt(z),mx=Math.max(5,Object.values(fin).reduce((a,b)=>a+b,0));
+ for(let i=0;i<=4;i++){const y=p.t+(H-p.t-p.b)*(1-i/4);g.beginPath();g.moveTo(p.l,y);g.lineTo(W-p.r,y);g.stroke();g.fillText(Math.round(mx*i/4),p.l-4,y+4)}
+ if(S2.length<2)return;const t0=S2[0].t,t1=S2[S2.length-1].t,xx=t=>p.l+(t-t0)/(t1-t0||1)*(W-p.l-p.r),yy=n=>H-p.b-n/mx*(H-p.t-p.b);
+ const ser=[['total','#d4d4d4',e=>Object.values(e.c).reduce((a,b)=>a+b,0)],...K.filter(k=>fin[k]).map(k=>[k,COL[k],e=>e.c[k]])];
+ g.lineWidth=2;ser.forEach(([n,col,fn])=>{g.strokeStyle=col;g.beginPath();S2.forEach((e,i)=>{i?g.lineTo(xx(e.t),yy(fn(e))):g.moveTo(xx(e.t),yy(fn(e)))});g.stroke()});
+ g.textAlign='center';g.fillStyle='#aaa';[t0,(t0+t1)/2,t1].forEach(t=>{const d=new Date(t);g.fillText(pad(d.getHours())+':'+pad(d.getMinutes()),cl(xx(t),p.l+8,W-22),H-6)})}
+/* ---------- UI panels ---------- */
+function list(r,hide){return K.filter(k=>!hide||r[k]).map(k=>`<div class="ls"><span>${IC[k]} ${k[0].toUpperCase()+k.slice(1)}:</span><span>${r[k]}</span></div>`).join('')}
+function row(z){const r=cnt(z),q=Z[z];return `<div class="line"><b class="n"><span class="sq" style="background:${q.c}"></span>${q.n}</b>${K.slice(0,5).map(k=>`<span class="ic" style="color:${COL[k]}">${IC[k]} ${r[k]}</span>`).join('')}</div>`}
+const H=(e,h)=>{if(e._h!==h){e._h=h;e.innerHTML=h}};
+function ui(){$('pill').textContent=S.run?'■ Stop - '+fmt(S.el):'▶ '+(S.src?'Resume':'Start')+' - '+fmt(S.el);
+ H($('boxes'),row('in')+row('out'));const a=cnt(),tot=Object.values(a).reduce((x,y)=>x+y,0);$('tt').textContent=tot;H($('tl'),list(a,1));
+ $('dt').innerHTML=`${pad(S.date.getDate())}.${pad(S.date.getMonth()+1)}.${S.date.getFullYear()} at ${pad(S.date.getHours())}:${pad(S.date.getMinutes())}<br>Duration: ${fmt(S.el)}`;
+ const open=[...document.querySelectorAll('canvas.g:not([hidden])')].map(e=>e.dataset.z||'');
+ H($('zs'),['in','out'].map(z=>{const r=cnt(z),n=Object.values(r).reduce((x,y)=>x+y,0);
+  return `<div class="card"><b><span class="sq" style="background:${Z[z].c}"></span>${Z[z].n}</b><span class="big" style="font-size:16px">${n} objects</span><div style="clear:both"></div>${list(r)}
+  <button class="lk" data-v="${z}">✅ Validate Detections</button><br><button class="lk" data-g="${z}">📈 Show Graph</button><canvas class="g" data-z="${z}" width="640" height="260" ${open.includes(z)?'':'hidden'}></canvas></div>`}).join(''));
+ document.querySelectorAll('canvas.g:not([hidden])').forEach(e=>graph(e,e.dataset.z||null))}
+document.addEventListener('click',e=>{const b=e.target.closest('button.lk');if(!b)return;
+ if(b.dataset.v){valid(b.dataset.v);return}if(b.dataset.g!=null){const cv=b.parentElement.querySelector('canvas.g');cv.hidden=!cv.hidden;ui()}});
+function valid(z){$('vt').textContent='Validate Detections — '+Z[z].n;const dl=$('vd');
+ const render=()=>{$('vg').innerHTML=S.objs.map((o,i)=>o.zone!=z?'':`<div class="it ${o.ok?'':'x'}"><img src="${o.img}"><select data-i="${i}">${K.map(k=>`<option ${k==o.cls?'selected':''}>${k}</option>`).join('')}</select>#${o.id} <button class="lk" data-r="${i}">${o.ok?'✕ Remove':'↺ Restore'}</button></div>`).join('')||'<span class="mu">No detections yet.</span>'};
+ render();$('vg').onclick=e=>{const r=e.target.dataset.r;if(r!=null){S.objs[r].ok=!S.objs[r].ok;render();ui()}};
+ $('vg').onchange=e=>{const i=e.target.dataset.i;if(i!=null){S.objs[i].cls=e.target.value;render();ui()}};dl.showModal()}
+$('vx').onclick=()=>$('vd').close();
+/* ---------- model + sources ---------- */
+const ld=u=>new Promise((r,j)=>{const s=document.createElement('script');s.src=u;s.onload=r;s.onerror=()=>j(new Error('Internet/CDN problem: model load hoy ni'));document.head.appendChild(s)});
+async function model(){const n=$('mdl').value;if(M&&MN==n)return;msg('AI model load hocche… (prothombar ektu somoy lagbe)');
+ if(!window.tf)await ld('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0');if(!window.cocoSsd)await ld('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3');M=await cocoSsd.load({base:n});MN=n}
+function reset(){S.tracks=[];S.objs=[];S.hist=[];S.el=0;S.lh=-9;S.nid=1;S.live={in:0,out:0};S.date=new Date();dobs=[]}
+function setSrc(el,w,h,kind){c.width=Math.min(w,1280);c.height=Math.round(c.width*h/w);S.k=c.width/w;S.src=el;S.kind=kind;reset();S.run=true;ui()}
+function stopSrc(keep){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}v.pause();v.removeAttribute('src');v.srcObject=null;if(!keep)S.src=null}
+$('bCam').onclick=async()=>{try{await model();stopSrc();stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:$('cam').value,width:{ideal:1280},height:{ideal:720}},audio:false});
+ v.srcObject=stream;await v.play();setSrc(v,v.videoWidth,v.videoHeight,'cam');msg('Live ✔')}catch(e){msg('Error: '+e.message+' (HTTPS + camera permission lagbe)')}};
+$('fi').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{await model();stopSrc();v.src=URL.createObjectURL(f);v.onended=()=>{S.run=false;ui();msg('Video sesh ✔')};await v.play();setSrc(v,v.videoWidth,v.videoHeight,'file');msg('Video analyse hocche…')}catch(er){msg('Error: '+er.message)}};
+$('bDemo').onclick=()=>{stopSrc();setSrc(dc,640,360,'demo');msg('Demo mode (simulated traffic) — AI model lage na.')};
+$('pill').onclick=()=>{if(!S.src&&!S.kind){msg('Age Camera / Video / Demo select koro.');return}S.run=!S.run;if(S.kind=='file')S.run?v.play():v.pause();ui()};
+$('ed').onclick=()=>{S.edit=!S.edit;c.style.touchAction=S.edit?'none':'auto';$('ed').classList.toggle('on',S.edit);msg(S.edit?'Zone-er upor drag kore sorao, kone-r square-e resize koro.':'')};
+const pt=e=>{const r=c.getBoundingClientRect();return[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]};
+c.onpointerdown=e=>{if(!S.edit)return;const p=pt(e);for(const z of['out','in']){const q=Z[z];
+ if(Math.abs(p[0]-q.x-q.w)<.06&&Math.abs(p[1]-q.y-q.h)<.08){dr={z,m:'r'};break}
+ if(p[0]>q.x&&p[0]<q.x+q.w&&p[1]>q.y&&p[1]<q.y+q.h){dr={z,m:'m',dx:p[0]-q.x,dy:p[1]-q.y};break}}if(dr)c.setPointerCapture(e.pointerId)};
+c.onpointermove=e=>{if(!dr)return;const p=pt(e),q=Z[dr.z];if(dr.m=='m'){q.x=cl(p[0]-dr.dx,0,1-q.w);q.y=cl(p[1]-dr.dy,0,1-q.h)}else{q.w=cl(p[0]-q.x,.06,1-q.x);q.h=cl(p[1]-q.y,.08,1-q.y)}};
+c.onpointerup=()=>{dr=null;save()};
+$('rec').onclick=()=>{if(rec&&rec.state=='recording'){rec.stop();return}const ch=[],mt=['video/mp4','video/webm;codecs=vp9','video/webm'].find(t=>MediaRecorder.isTypeSupported(t));
+ rec=new MediaRecorder(c.captureStream(20),{mimeType:mt,videoBitsPerSecond:4e6});rec.ondataavailable=e=>e.data.size&&ch.push(e.data);
+ rec.onstop=()=>{dl(new Blob(ch,{type:mt}),'cctv-'+Date.now()+(mt.includes('mp4')?'.mp4':'.webm'));$('rec').textContent='⏺ REC';$('rec').classList.remove('on')};
+ rec.start(1000);$('rec').textContent='⏹ Save';$('rec').classList.add('on')};
+const dl=(b,n)=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click()};
+$('csv').onclick=()=>dl(new Blob(['id,class,zone,seconds\n'+S.objs.filter(o=>o.ok).map(o=>`${o.id},${o.cls},${Z[o.zone].n},${o.at.toFixed(1)}`).join('\n')],{type:'text/csv'}),'detections.csv');
+/* ---------- main loop ---------- */
+function loop(now){const dt=Math.min(.2,(now-S.last)/1000||0);S.last=now;
+ if(S.run){S.el+=dt;if(S.kind=='demo')dstep(dt);
+  if(S.el-S.lh>=1){S.lh=S.el;S.hist.push({t:Date.now(),el:S.el})}
+  if(!S.busy&&S.src){S.busy=1;(S.kind=='demo'?Promise.resolve(ddet()):M.detect(S.src,40,.35)).then(r=>{if(S.run)upd(r.filter(d=>COL[d.class]).map(d=>({c:d.class,s:d.score,b:d.bbox.map(n=>n*S.k)})));S.busy=0}).catch(e=>{S.busy=0;msg(e.message)})}}
+ draw();requestAnimationFrame(loop)}
+dstep(0);requestAnimationFrame(loop);setInterval(ui,500);ui();
+</script></body></html>
